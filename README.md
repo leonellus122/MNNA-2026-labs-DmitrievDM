@@ -1,1 +1,1 @@
-# MNNA-2026-lab1
+# MNNA-2026-labs-DmitrievDM
