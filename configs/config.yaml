@@ -1,0 +1,12 @@
+common_crawl:
+  data_server: "https://data.commoncrawl.org/"
+  user_agent: "lab1-data-prep/1.0 (student@university.edu)"
+  
+  # Список WARC-файлов для скачивания
+  # Имена берем с https://data.commoncrawl.org/
+  warc_filenames:
+    - "crawl-data/CC-MAIN-2024-33/segments/1718841815123.1/warc/CC-MAIN-20240619160335-20240619190335-00000.warc.gz"
+    # - "crawl-data/CC-MAIN-2024-33/segments/.../warc/CC-MAIN-...-00001.warc.gz"
+
+paths:
+  raw_data_dir: "data/raw"
