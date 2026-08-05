@@ -1,3 +1,5 @@
 requests
 warcio
 pyyaml
+tqdm
+ipywidgets
