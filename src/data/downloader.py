@@ -3,7 +3,7 @@ import logging
 import requests
 from pathlib import Path
 from urllib.parse import urljoin
-from tqdm.notebook import tqdm # Для красивых виджетов
+from tqdm.notebook import tqdm
 
 from src.utils import load_config
 # Настройка логирования
