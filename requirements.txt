@@ -3,3 +3,5 @@ warcio
 pyyaml
 tqdm
 ipywidgets
+beautifulsoup4
+langdetect
