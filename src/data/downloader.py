@@ -51,7 +51,7 @@ def download_warc_files(config_path: str, raw_data_dir: str) -> None:
                 total_size = int(response.headers.get('content-length', 0))
                 
                 
-                with tqdm(total=total_size, unit='B', unit_scale=True, desc=filename, leave=False) as pbar:
+                with tqdm(total=total_size, unit='B', unit_scale=True, desc=filename) as pbar:
                     with open(save_path, 'wb') as file:
                         for chunk in response.iter_content(chunk_size=1048576): # 1 MB
                             if chunk:
