@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 HTML_TYPES = {
     "text/html",
     "application/xhtml+xml",
+    "text/plain",
+    "text/xml",
+
 }
 
-
+# Открывает WARC-файл, поддерживая сжатые файлы .gz
 def open_warc(path: str):
-    """
-    Открывает обычный или gzip-сжатый WARC-файл.
-    """
     path_obj = Path(path)
 
     if path_obj.suffix == ".gz":
@@ -30,24 +30,29 @@ def open_warc(path: str):
 
     return open(path_obj, "rb")
 
-
+# Извлечение кодировки из заголовка Content-Type
 def get_charset(content_type: str | None) -> str:
-    """
-    Извлекает кодировку из Content-Type.
-    """
     if not content_type:
         return "utf-8"
 
+# Для регистронезависимости, 
+# например, может быть, что charset=UTF-8 или charset="utf-8", 
+# все приводим к utf-8
     content_type_lower = content_type.lower()
 
-    if "charset=" not in content_type_lower:
+    if "charset" not in content_type_lower:
         return "utf-8"
 
-    charset = content_type_lower.split("charset=", 1)[1]
+
+    # Что убрать пробелы вокруг знака равенства, чтобы корректно извлечь кодировку
+    normalized = content_type_lower.replace(" =", "=").replace("= ", "=")
+    
+    charset = normalized.split("charset=", 1)[1]
     charset = charset.split(";", 1)[0]
     charset = charset.strip().strip('"').strip("'")
-
+    
     return charset or "utf-8"
+
 
 
 def convert_warc_to_jsonl(
@@ -55,10 +60,7 @@ def convert_warc_to_jsonl(
     output_path: str,
     html_only: bool = True,
 ) -> None:
-    """
-    Извлекает содержимое response-записей из WARC
-    и сохраняет его в формате JSONL.
-    """
+    
     records_total = 0
     records_written = 0
     records_failed = 0
@@ -66,6 +68,7 @@ def convert_warc_to_jsonl(
     with open_warc(input_path) as warc_stream, \
             open(output_path, "w", encoding="utf-8") as output:
 
+# Итерация по записям в warc файле
         for record in ArchiveIterator(warc_stream):
             records_total += 1
 
@@ -80,7 +83,7 @@ def convert_warc_to_jsonl(
                     if content_type
                     else ""
                 )
-
+# Нопмализуем типы записей, если нет в нашем списке(HTML_TYPES) пропускаем
                 if normalized_content_type not in HTML_TYPES:
                     continue
 
@@ -88,7 +91,7 @@ def convert_warc_to_jsonl(
                 payload = record.content_stream().read()
 
                 charset = get_charset(content_type)
-
+# Если кодировка не поддерживается, используем utf-8, все непонятные символы заменяем на �, чтобы не было ошибок при записи
                 try:
                     content = payload.decode(charset, errors="replace")
                 except LookupError:
@@ -105,6 +108,7 @@ def convert_warc_to_jsonl(
                 }
 
                 output.write(
+                    # Коевертируем словарь в JSON-строку и добавляем перенос строки
                     json.dumps(
                         item,
                         ensure_ascii=False,
@@ -133,9 +137,6 @@ def convert_all_warc(
     recursive: bool = False,
     overwrite: bool = False,
 ) -> None:
-    """
-    Конвертирует все файлы .warc.gz из input_dir в JSONL.
-    """
 
     input_path = Path(input_dir)
     output_path = Path(output_dir)
