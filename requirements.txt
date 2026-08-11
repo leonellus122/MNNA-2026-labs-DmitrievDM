@@ -5,3 +5,5 @@ tqdm
 ipywidgets
 beautifulsoup4
 langdetect
+torch
+transformers
