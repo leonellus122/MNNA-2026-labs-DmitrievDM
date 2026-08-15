@@ -7,3 +7,5 @@ beautifulsoup4
 langdetect
 torch
 transformers
+tiktoken
+lxml

@@ -1,12 +1,18 @@
-import json
-import re
+import warnings
 import logging
-import unicodedata
+import json
 from pathlib import Path
-
-from bs4 import BeautifulSoup
+import re
 from langdetect import detect, LangDetectException
+import unicodedata
+import tiktoken
 
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+
+# ============================================================
+# ЛОГГЕР
+# ============================================================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(message)s",
@@ -14,136 +20,89 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Токенизатор для подсчёта длины (для разбиения по пункту 6).
-# Если tiktoken недоступен — используем грубую оценку по словам.
-# ---------------------------------------------------------------------------
-try:
-    import tiktoken
-
-    _ENC = tiktoken.get_encoding("cl100k_base")
-
-    def count_tokens(text: str) -> int:
-        return len(_ENC.encode(text))
-
-except Exception:
-    # tiktoken не установлен, либо нет доступа к сети для загрузки
-    # словаря энкодера — используем грубую оценку по словам.
-    logger.warning(
-        "tiktoken недоступен, длина будет оцениваться приблизительно "
-        "(1 токен ~= 0.75 слова)."
-    )
-
-    def count_tokens(text: str) -> int:
-        words = len(text.split())
-        return int(words / 0.75)
-
-
-# 1. Удаление HTML-разметки и заголовков (header'ов)
+# ============================================================
+# ЗАДАНИЕ 3.2.1. Очистка текста от HTML разметки
+# ============================================================
 def remove_html(raw_html: str) -> str:
-    """
-    Удаляет HTML-теги, а также содержимое <script>, <style>, <header>,
-    <footer>, <nav> (это "шум", а не полезный текст страницы).
-    Возвращает чистый текст.
-    """
     if not raw_html:
         return ""
 
-    soup = BeautifulSoup(raw_html, "html.parser")
+    soup = BeautifulSoup(raw_html, "lxml")
 
-    # Удаляем теги, которые не несут полезного текста
-    for tag in soup(["script", "style", "header", "footer", "nav", "noscript", "iframe"]):
+    for tag in soup(["header"]): # Удаляем header-ы но также можно в дальнейшем убрать и теги: "script", "style", "header", "footer", "nav", "noscript", "iframe"
         tag.decompose()
 
-    # separator=" " - чтобы соседние теги не "склеивали" слова
     text = soup.get_text(separator=" ")
 
     return text
 
-# 2. Удаление неизвестных языков и посторонних символов
+# ============================================================
+# ЗАДАНИЕ 3.2.2. Удаление неизвестных языков и посторонних символов
+# ============================================================
+allowed_languages = {"ru", "en"}
 
-# Языки, на которых мы обучаем модель
-ALLOWED_LANGUAGES = {"ru", "en"}
-
-# Разрешённые символы: кириллица, латиница, цифры, базовая пунктуация
-# и пробельные символы. Всё остальное (иероглифы, эмодзи, экзотические
-# алфавиты и т.п.) будет вырезано.
-ALLOWED_CHARS_PATTERN = re.compile(
+allowed_chars_pattern = re.compile(
     r"[^a-zA-Zа-яА-ЯёЁ0-9\s"
     r".,!?;:\-—–\"'«»()\[\]{}%№@#&*/+=<>_$€₽…]"
 )
-
-
 def detect_language(text: str) -> str | None:
-    """
-    Определяет язык текста. Возвращает код языка ('ru', 'en', ...)
-    или None, если определить не удалось (например, текст слишком короткий).
-    """
-    # langdetect не умеет работать с пустым/слишком коротким текстом
+    # langdetect не умеет работать с пустым/слишком коротким текстом, вроде как
     sample = text.strip()
     if len(sample) < 20:
         return None
+
+    
 
     try:
         return detect(sample)
     except LangDetectException:
         return None
 
-
 def is_allowed_language(text: str) -> bool:
-    """Проверяет, что язык текста входит в ALLOWED_LANGUAGES."""
     lang = detect_language(text)
-    return lang in ALLOWED_LANGUAGES
-
+    return lang in allowed_languages
 
 def strip_unknown_symbols(text: str) -> str:
-    """
-    Убирает символы, не принадлежащие разрешённому алфавиту
-    (см. ALLOWED_CHARS_PATTERN) — иероглифы, эмодзи, экзотические
-    юникод-символы и т.д.
-    """
-    return ALLOWED_CHARS_PATTERN.sub(" ", text)
+    return allowed_chars_pattern.sub(" ", text)
+
+# ============================================================
+# ЗАДАНИЕ 3.2.3. Фильтрация по ключевым словам (токсичный контент) 
+# ============================================================
+toxic_keywords = {}
 
 
-# 3. Фильтрация по ключевым словам (токсичный контент)
+def contains_toxic_keywords(text: str, keywords: set[str] = toxic_keywords) -> bool:
+    # if not keywords:
+    #     return False
 
-# Пример списка — дополните своим (мат, спам, нежелательные темы и т.д.)
-TOXIC_KEYWORDS = {"казино","NSFW"}
+    # lowered = text.lower()
+    # return any(keyword.lower() in lowered for keyword in keywords)
+    pass
 
-
-def contains_toxic_keywords(text: str, keywords: set[str] = TOXIC_KEYWORDS) -> bool:
-    """
-    Возвращает True, если текст содержит хотя бы одно "токсичное" слово.
-    Сравнение регистронезависимое.
-    """
-    if not keywords:
-        return False
-
-    lowered = text.lower()
-    return any(keyword.lower() in lowered for keyword in keywords)
-
-
+# ============================================================
+# ЗАДАНИЕ 3.2.4. Нормализация пробелов и Unicode
+# ============================================================
 # 4. Нормализация пробелов и Unicode
 def normalize_text(text: str) -> str:
-    """
-    - Приводит юникод к канонической форме NFKC (например, "ﬁ" -> "fi",
-      полноширинные символы -> обычные, разные виды пробелов -> обычный).
-    - Схлопывает несколько пробелов/переносов строк в один пробел.
-    - Убирает пробелы по краям строки.
-    """
-    text = unicodedata.normalize("NFKC", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    text = unicodedata.normalize("NFKC", text) # Нормализация, приведение текста к единому виду
+    text = re.sub(r"\s+", " ", text) # Замена последовательностей пробельных символов на один пробел
+    return text.strip() # Удаление пробелов в начале и конце текста
 
-
-# 5. Удаление пустых строк
+# ============================================================
+# ЗАДАНИЕ 3.2.5. Удаление пустых строк
+# ============================================================
 def is_empty(text: str, min_length: int = 1) -> bool:
-    """Считает текст пустым, если в нём меньше min_length непробельных символов."""
-    return len(text.strip()) < min_length
+    return len(text.strip()) < min_length # Строка пустая если ее длина меньше минимальной длины (по умолчанию 1, то есть пустая строка)
+
+# ============================================================
+# ЗАДАНИЕ 3.2.6. Разбиение слишком длинных объектов на части
+# ============================================================
 
 
-# 6. Разбиение слишком длинных объектов на части
+_ENC = tiktoken.get_encoding("cl100k_base")
+
+def count_tokens(text: str) -> int:
+    return len(_ENC.encode(text))
 
 # Границы длины объекта в токенах (см. задание: 512-1024 токена)
 MAX_TOKENS_PER_CHUNK = 1024
@@ -151,6 +110,21 @@ MAX_TOKENS_PER_CHUNK = 1024
 # Простое разбиение на предложения по знакам конца предложения
 _SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?…])\s+")
 
+def _hard_split_by_words(text: str, max_tokens: int) -> list[str]:
+    """Аварийное разбиение аномально длинного предложения по словам."""
+    words = text.split()
+    chunks, current = [], []
+
+    for word in words:
+        current.append(word)
+        if count_tokens(" ".join(current)) >= max_tokens:
+            chunks.append(" ".join(current))
+            current = []
+
+    if current:
+        chunks.append(" ".join(current))
+
+    return chunks
 
 def split_long_text(text: str, max_tokens: int = MAX_TOKENS_PER_CHUNK) -> list[str]:
     """
@@ -193,25 +167,9 @@ def split_long_text(text: str, max_tokens: int = MAX_TOKENS_PER_CHUNK) -> list[s
     return chunks
 
 
-def _hard_split_by_words(text: str, max_tokens: int) -> list[str]:
-    """Аварийное разбиение аномально длинного предложения по словам."""
-    words = text.split()
-    chunks, current = [], []
-
-    for word in words:
-        current.append(word)
-        if count_tokens(" ".join(current)) >= max_tokens:
-            chunks.append(" ".join(current))
-            current = []
-
-    if current:
-        chunks.append(" ".join(current))
-
-    return chunks
-
-
-
-# ОСНОВНОЙ ПАЙПЛАЙН
+# ============================================================
+# ЗАДАНИЕ 3.2. Объединение всех шагов очистки в один пайплайн
+# ============================================================
 def clean_text(raw_html: str, use_toxic_filter: bool = False) -> list[str]:
     # 1. HTML и заголовки
     text = remove_html(raw_html)
@@ -319,3 +277,29 @@ def clean_all_jsonl(
             output_path=str(out_file),
             use_toxic_filter=use_toxic_filter,
         )
+
+# if __name__ == "__main__":
+#     input="D:/Folders/Master Degree/labs/MNNA-2026-labs-DmitrievDM/MNNA-2026-labs-DmitrievDM/data/converted"
+#     output="D:/Folders/Master Degree/labs/MNNA-2026-labs-DmitrievDM/MNNA-2026-labs-DmitrievDM/data/cleaned"
+
+#     clean_all_jsonl(
+#         input_dir=input,
+#         output_dir=output,
+#         use_toxic_filter=False,
+#     )
+
+if __name__ == "__main__":
+
+    input="D:/Folders/Master Degree/labs/MNNA-2026-labs-DmitrievDM/MNNA-2026-labs-DmitrievDM/data/converted"
+    output="D:/Folders/Master Degree/labs/MNNA-2026-labs-DmitrievDM/MNNA-2026-labs-DmitrievDM/data/cleaned"
+    
+    try:
+        clean_all_jsonl(
+            input_dir=input,
+            output_dir=output,
+            use_toxic_filter=False,
+        )
+    except KeyboardInterrupt:
+        logger.warning("Прервано пользователем — показываю собранную статистику")
+    finally:
+        print_profile_report()

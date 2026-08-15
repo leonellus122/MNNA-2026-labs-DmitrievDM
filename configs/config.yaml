@@ -4,6 +4,3 @@ common_crawl:
   warc_paths:
     - crawl-data/CC-MAIN-2026-25/segments/1780687572080.85/warc/CC-MAIN-20260605214811-20260606004811-00000.warc.gz
     - crawl-data/CC-MAIN-2026-25/segments/1780687572080.85/warc/CC-MAIN-20260605214811-20260606004811-00001.warc.gz
-
-# paths:
-#   raw_data_dir: "data/raw"

@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def download_warc_files(config_path: str, raw_data_dir: str) -> None:
+def download_warc_files(config_path: str = "../../configs/config.yaml", raw_data_dir: str = "data/raw") -> None:
     """
     Скачивает WARC файлы на основе конфига.
     """
