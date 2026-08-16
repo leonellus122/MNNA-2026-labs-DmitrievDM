@@ -9,3 +9,4 @@ transformers
 tiktoken
 lxml
 tokenizers
+pytorch_lightning
