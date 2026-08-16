@@ -8,3 +8,4 @@ langdetect
 transformers
 tiktoken
 lxml
+tokenizers
