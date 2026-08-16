@@ -1,6 +1,7 @@
 import json
 import logging
 from pathlib import Path
+import hashlib
 
 import torch
 from tqdm.auto import tqdm
@@ -482,7 +483,7 @@ def filter_single_file(
 
             stats["total_valid_objects"] += 1
 
-            # ШАГ А: Проверка на дубликаты
+            # Проверка на дубликаты
             text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
             if text_hash in seen_hashes:
                 stats["removed_duplicates"] += 1
@@ -492,7 +493,7 @@ def filter_single_file(
             # Добавляем в множество уникальных
             seen_hashes.add(text_hash)
 
-            # ШАГ Б: Проверка на энтропию
+            # Проверка на энтропию
             ent = metrics_map.get(index)
             if ent is None:
                 logger.warning(f"Индекс {index} не найден в метриках. Пропускаем.")
@@ -530,6 +531,8 @@ def filter_dataset_dir(
     original_dir = Path(original_dir)
     metrics_dir = Path(metrics_dir)
     output_dir = Path(output_dir)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     files = sorted(original_dir.glob(pattern))
     if not files:

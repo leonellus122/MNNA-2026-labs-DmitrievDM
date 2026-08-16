@@ -8,3 +8,6 @@ langdetect
 transformers
 tiktoken
 lxml
+tokenizers
+pytorch_lightning
+datasets
