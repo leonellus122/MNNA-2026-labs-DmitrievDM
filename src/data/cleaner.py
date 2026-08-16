@@ -292,14 +292,9 @@ if __name__ == "__main__":
 
     input="D:/Folders/Master Degree/labs/MNNA-2026-labs-DmitrievDM/MNNA-2026-labs-DmitrievDM/data/converted"
     output="D:/Folders/Master Degree/labs/MNNA-2026-labs-DmitrievDM/MNNA-2026-labs-DmitrievDM/data/cleaned"
-    
-    try:
-        clean_all_jsonl(
-            input_dir=input,
-            output_dir=output,
-            use_toxic_filter=False,
-        )
-    except KeyboardInterrupt:
-        logger.warning("Прервано пользователем — показываю собранную статистику")
-    finally:
-        print_profile_report()
+        
+    clean_all_jsonl(
+        input_dir=input,
+        output_dir=output,
+        use_toxic_filter=False,
+    )
