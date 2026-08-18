@@ -1,0 +1,41 @@
+# Конфигурация модели
+model:
+  vocab_size: 10000
+  d_model: 512
+  n_heads: 8
+  n_layers: 6
+  d_ff: 2048
+  max_len: 512
+
+# Конфигурация обучения
+training:
+  batch_size: 4
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  warmup_steps: 1000
+  max_epochs: 10
+  gradient_clip_val: 1.0
+  
+  # Optimizer
+  optimizer:
+    name: "adamw"
+    betas: [0.9, 0.999]
+    eps: 1.0e-8
+  
+  # LR Scheduler
+  scheduler:
+    name: "cosine"
+    T_max: 100000  # будет перезаписано в configure_optimizers
+    eta_min: 1.0e-6
+
+# Конфигурация данных
+data:
+  max_length: 512
+  batch_size: 4
+  num_workers: 4
+
+# Пути (будут загружены из .env)
+paths:
+  data_dir: "${oc.env:DATA_DIR}"
+  tokenizer_path: "${oc.env:TOKENIZER_PATH}"
+  checkpoint_dir: "${oc.env:CHECKPOINT_DIR}"

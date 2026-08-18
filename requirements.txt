@@ -11,3 +11,7 @@ lxml
 tokenizers
 pytorch_lightning
 datasets
+omegaconf
+clearml
+tensorboard
+python-dotenv
