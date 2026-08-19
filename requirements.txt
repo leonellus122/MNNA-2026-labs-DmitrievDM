@@ -11,3 +11,4 @@ lxml
 tokenizers
 pytorch_lightning
 datasets
+dvc

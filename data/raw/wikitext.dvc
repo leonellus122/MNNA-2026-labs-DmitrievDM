@@ -1,0 +1,6 @@
+outs:
+- md5: ec2610cf9b525336eea4b9e59399773d.dir
+  size: 13700281
+  nfiles: 3
+  hash: md5
+  path: wikitext

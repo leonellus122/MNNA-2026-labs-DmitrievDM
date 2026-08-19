@@ -1,0 +1,6 @@
+outs:
+- md5: 8235a8dfbc79531423689c1dc22740e1.dir
+  size: 940246254
+  nfiles: 1
+  hash: md5
+  path: warc

@@ -1,0 +1,6 @@
+outs:
+- md5: c3a68542c6f3a2f659f31f4a7f407411.dir
+  size: 3920720219
+  nfiles: 1
+  hash: md5
+  path: jsonl
