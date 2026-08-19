@@ -1,7 +1,10 @@
 # data
-/data/
 .venv/
 docs/
 __pycache__/
 .vscode/
 artifacts/
+data/**
+!data/**/
+!data/**/*.dvc
+!data/**/.gitignore

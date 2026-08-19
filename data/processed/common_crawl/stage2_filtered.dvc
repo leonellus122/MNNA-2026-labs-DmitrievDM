@@ -1,0 +1,6 @@
+outs:
+- md5: 301c0a0352c541de78f963bde557ab1f.dir
+  size: 71020363
+  nfiles: 2
+  hash: md5
+  path: stage2_filtered
