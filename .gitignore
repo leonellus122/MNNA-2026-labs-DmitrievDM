@@ -6,8 +6,13 @@ __pycache__/
 .vscode/
 artifacts/
 /logs/
-/checkpoints/
+
 data/**
 !data/**/
 !data/**/*.dvc
 !data/**/.gitignore
+
+checkpoints/**
+!checkpoints/**/
+!checkpoints/**/*.dvc
+!checkpoints/**/.gitignore
