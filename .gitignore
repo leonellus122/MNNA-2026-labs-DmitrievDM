@@ -6,7 +6,7 @@ __pycache__/
 .vscode/
 artifacts/
 /logs/
-/checkpoints/
+
 data/**
 !data/**/
 !data/**/*.dvc
