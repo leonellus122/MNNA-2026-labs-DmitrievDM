@@ -5,7 +5,9 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR
 from omegaconf import DictConfig
 from typing import Any, Dict
+import math
 
+from src.data.wikitext_datamodule import WikiTextDataModule
 from src.models.gpt_model import GPTModel
 
 
@@ -177,7 +179,8 @@ class GPTLightningModule(pl.LightningModule):
                 progress = float(current_step - warmup_steps) / float(max(1, max_steps - warmup_steps))
                 return max(
                     self.hparams.training.scheduler.eta_min / self.hparams.training.learning_rate,
-                    0.5 * (1.0 + torch.cos(torch.tensor(3.141592653589793 * progress)))
+                    # 0.5 * (1.0 + torch.cos(torch.tensor(3.141592653589793 * progress)))
+                    0.5 * (1.0 + math.cos(math.pi * progress))
                 )
         
         scheduler = LambdaLR(optimizer, lr_lambda)

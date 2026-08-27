@@ -4,6 +4,7 @@ from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
 from pathlib import Path
 from src.tokenization.tokenizers import load_bpe_tokenizer
+from omegaconf import DictConfig
 
 
 def create_packed_batches(texts, tokenizer, max_length=512):
@@ -92,13 +93,18 @@ class PackedWikiTextDataset(Dataset):
 
 
 class WikiTextDataModule(pl.LightningDataModule):
-    def __init__(self, data_dir, tokenizer_path, max_length=512, batch_size=4, num_workers=4):
+    def __init__(self, config: DictConfig):
         super().__init__()
-        self.data_dir = Path(data_dir)
-        self.tokenizer_path = tokenizer_path
-        self.max_length = max_length
-        self.batch_size = batch_size
-        self.num_workers = num_workers
+
+        self.save_hyperparameters(config)
+
+        self.data_dir = Path(config.paths.data_dir)
+        self.tokenizer_path = Path(config.paths.tokenizer_path)
+        self.max_length = config.data.max_length
+        self.batch_size = config.data.batch_size
+        self.num_workers = config.data.num_workers
+        
+        # Создаем модель
         
     def setup(self, stage=None):
         # Загружаем BPE, обученный на Common Crawl!
