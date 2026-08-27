@@ -162,6 +162,8 @@ def compute_dataset_entropy(
 
     model = AutoModelForCausalLM.from_pretrained(model_name)
     model.to(device)
+    if device == "cuda":
+        model = model.half()
     model.eval()
 
     input_path = Path(input_path)
@@ -282,6 +284,8 @@ def compute_dataset_entropy_dir(
 
     model = AutoModelForCausalLM.from_pretrained(model_name)
     model.to(device)
+    if device == "cuda":
+        model = model.half()
     model.eval()
 
     agg_total_nll = 0.0

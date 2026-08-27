@@ -1,9 +1,12 @@
 # data
 .venv/
+.env
 docs/
 __pycache__/
 .vscode/
 artifacts/
+/logs/
+/checkpoints/
 data/**
 !data/**/
 !data/**/*.dvc
