@@ -16,3 +16,5 @@ omegaconf
 clearml
 tensorboard
 python-dotenv
+pytest
+matplotlib
