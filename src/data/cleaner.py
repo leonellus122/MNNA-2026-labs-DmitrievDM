@@ -46,12 +46,10 @@ allowed_chars_pattern = re.compile(
     r".,!?;:\-—–\"'«»()\[\]{}%№@#&*/+=<>_$€₽…]"
 )
 def detect_language(text: str) -> str | None:
-    # langdetect не умеет работать с пустым/слишком коротким текстом, вроде как
+    # langdetect не умеет работать с пустым/слишком коротким текстом
     sample = text.strip()
     if len(sample) < 20:
-        return None
-
-    
+        return None    
 
     try:
         return detect(sample)
@@ -68,15 +66,15 @@ def strip_unknown_symbols(text: str) -> str:
 # ============================================================
 # ЗАДАНИЕ 3.2.3. Фильтрация по ключевым словам (токсичный контент) 
 # ============================================================
-toxic_keywords = {}
+toxic_keywords = {'NSFW', 'Казино', 'Азартные игры', 'Наркотики', 'Алкоголь', 'Оружие'}
 
 
 def contains_toxic_keywords(text: str, keywords: set[str] = toxic_keywords) -> bool:
-    # if not keywords:
-    #     return False
+    if not keywords:
+        return False
 
-    # lowered = text.lower()
-    # return any(keyword.lower() in lowered for keyword in keywords)
+    lowered = text.lower()
+    return any(keyword.lower() in lowered for keyword in keywords)
     pass
 
 # ============================================================
@@ -170,13 +168,16 @@ def split_long_text(text: str, max_tokens: int = MAX_TOKENS_PER_CHUNK) -> list[s
 # ============================================================
 # ЗАДАНИЕ 3.2. Объединение всех шагов очистки в один пайплайн
 # ============================================================
-def clean_text(raw_html: str, use_toxic_filter: bool = False) -> list[str]:
+def clean_text(raw_html: str, use_toxic_filter: bool = False, lang_detect: bool = True) -> list[str]:
     # 1. HTML и заголовки
     text = remove_html(raw_html)
 
     # 2. Неизвестные языки и посторонние символы
-    if not is_allowed_language(text):
-        return []
+
+    if lang_detect == True:
+        if not is_allowed_language(text):
+            return []
+    
     text = strip_unknown_symbols(text)
 
     # 3. (опционально) Токсичные ключевые слова
@@ -200,6 +201,7 @@ def clean_jsonl_file(
     output_path: str,
     text_field: str = "content",
     use_toxic_filter: bool = False,
+    lang_detect: bool = True
 ) -> None:
     """
     Читает JSONL построчно, применяет clean_text() к каждому объекту
@@ -225,7 +227,7 @@ def clean_jsonl_file(
                 continue
 
             raw_html = item.get(text_field, "")
-            chunks = clean_text(raw_html, use_toxic_filter=use_toxic_filter)
+            chunks = clean_text(raw_html, use_toxic_filter=use_toxic_filter, lang_detect=lang_detect)
 
             if not chunks:
                 stats["dropped"] += 1
@@ -258,6 +260,8 @@ def clean_all_jsonl(
     input_dir: str,
     output_dir: str,
     use_toxic_filter: bool = False,
+    lang_detect: bool = True,
+    text_field: str = "content"
 ) -> None:
     """Применяет clean_jsonl_file() ко всем .jsonl файлам в папке."""
     input_path = Path(input_dir)
@@ -275,18 +279,10 @@ def clean_all_jsonl(
         clean_jsonl_file(
             input_path=str(file),
             output_path=str(out_file),
+            text_field = text_field,
             use_toxic_filter=use_toxic_filter,
+            lang_detect=lang_detect
         )
-
-# if __name__ == "__main__":
-#     input="D:/Folders/Master Degree/labs/MNNA-2026-labs-DmitrievDM/MNNA-2026-labs-DmitrievDM/data/converted"
-#     output="D:/Folders/Master Degree/labs/MNNA-2026-labs-DmitrievDM/MNNA-2026-labs-DmitrievDM/data/cleaned"
-
-#     clean_all_jsonl(
-#         input_dir=input,
-#         output_dir=output,
-#         use_toxic_filter=False,
-#     )
 
 if __name__ == "__main__":
 
@@ -297,4 +293,5 @@ if __name__ == "__main__":
         input_dir=input,
         output_dir=output,
         use_toxic_filter=False,
+        lang_detect=True,
     )
