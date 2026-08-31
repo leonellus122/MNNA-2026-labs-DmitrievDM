@@ -1,6 +1,6 @@
 outs:
-- md5: ffa99beeec2608b57fb08fa8bca825cb.dir
-  size: 569645546
-  nfiles: 6
+- md5: ec2610cf9b525336eea4b9e59399773d.dir
+  size: 13700281
+  nfiles: 3
   hash: md5
   path: wikitext
