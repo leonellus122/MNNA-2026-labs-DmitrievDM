@@ -11,6 +11,7 @@ lxml
 tokenizers
 pytorch_lightning
 datasets
+dvc
 omegaconf
 clearml
 tensorboard
