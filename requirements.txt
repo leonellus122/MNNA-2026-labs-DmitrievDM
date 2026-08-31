@@ -12,3 +12,4 @@ tokenizers
 pytorch_lightning
 datasets
 dvc
+ipykernel
