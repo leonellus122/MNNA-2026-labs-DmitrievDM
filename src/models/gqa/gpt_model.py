@@ -56,15 +56,33 @@ class GQAGPTModel(nn.Module):
         # LM-head
         self.lm_head = LMHead(d_model, vocab_size)
 
-    def forward(self, input_ids: torch.Tensor, sequence_ids: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        sequence_ids: torch.Tensor,
+        past_key_values=None,
+        use_cache: bool = False,
+    ):
         """
         Args:
-            input_ids: (batch_size, seq_len) - токены
-            sequence_ids: (batch_size, seq_len) - ID последовательностей для packed batching
+            input_ids: (batch_size, seq_len) - токены; при use_cache=True — только новые токены
+                       текущего шага (new_len = длина промпта при prefill, 1 при decode)
+            sequence_ids: (batch_size, seq_len) - ID последовательностей для packed batching;
+                          игнорируется при use_cache=True (генерация без паддинга/паков)
+            past_key_values: при use_cache=True — None (первый шаг) либо список из
+                             n_layers пар (K, V), см. GQAAttention.forward (п. 1.2 ЛР4)
+            use_cache: False — обычный forward для обучения (как в п. 1.1);
+                       True — инкрементальный шаг инференса с KV-кэшем (п. 1.2)
 
         Returns:
-            logits: (batch_size, seq_len, vocab_size) - логиты для каждого токена
+            use_cache=False: logits (batch_size, seq_len, vocab_size)
+            use_cache=True: (logits, present_key_values) — logits формы
+                            (batch_size, new_len, vocab_size), present_key_values —
+                            список из n_layers пар (K, V) с накопленным кэшем
         """
+        if use_cache:
+            return self._forward_with_cache(input_ids, past_key_values)
+
         # Token embeddings
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
 
@@ -79,6 +97,38 @@ class GQAGPTModel(nn.Module):
         logits = self.lm_head(x)  # (batch_size, seq_len, vocab_size)
 
         return logits
+
+    def _forward_with_cache(self, input_ids: torch.Tensor, past_key_values):
+        """
+        Инкрементальный шаг инференса с KV-кэшем (п. 1.2 ЛР4).
+
+        Позиционное кодирование считается напрямую из буфера
+        SinusoidalPositionalEncoding по абсолютному смещению past_len, так как
+        обычная ветка (через sequence_ids) не годится для инференса без
+        packed batching — см. докстринг класса и ТЗ п. 1.2.
+
+        Args:
+            input_ids: (batch_size, new_len) — только новые токены текущего шага
+            past_key_values: None либо список из n_layers пар (K, V)
+
+        Returns:
+            (logits, present_key_values)
+        """
+        batch_size, new_len = input_ids.shape
+
+        past_len = past_key_values[0][0].shape[2] if past_key_values is not None else 0
+        pe = self.positional_encoding.pe
+        x = self.token_embedding(input_ids) + pe[past_len: past_len + new_len]
+
+        present_key_values = []
+        for i, layer in enumerate(self.transformer_layers):
+            layer_past = past_key_values[i] if past_key_values is not None else None
+            x, present = layer(x, None, past_key_value=layer_past, use_cache=True)
+            present_key_values.append(present)
+
+        logits = self.lm_head(x)  # (batch_size, new_len, vocab_size)
+
+        return logits, present_key_values
 
     def compute_loss(
         self,

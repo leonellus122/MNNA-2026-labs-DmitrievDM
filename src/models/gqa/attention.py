@@ -15,9 +15,14 @@ class GQAAttention(nn.Module):
 
     Маска: M[i,j] = (s_i == s_j) AND (j <= i) AND (s_i != 0)
 
-    forward спроектирован cache-ready: принимает необязательные
-    use_cache/past_key_value, но в рамках этого класса кэш не
-    реализуется (см. п. 1.2 ЛР4 — отдельный класс поверх этого).
+    При use_cache=False (обучение/packed batching) поведение не менялось
+    с п. 1.1. При use_cache=True (п. 1.2, инференс) forward принимает
+    только новые токены текущего шага и переиспользует K/V уже
+    обработанных токенов из past_key_value формы
+    (batch_size, n_kv_heads, past_len, d_k) — компактный размер за счёт
+    GQA (n_kv_heads, а не n_heads). sequence_ids в этой ветке не участвует
+    в маске (packed batching при генерации не применяется), но остаётся
+    обязательным параметром ради единого вызова из GQATransformerLayer.
 
     Оптимизация: Q/K/V считаются одним слитным матричным умножением
     (self.W_qkv) вместо трёх отдельных — вход x общий для всех трёх
@@ -59,21 +64,23 @@ class GQAAttention(nn.Module):
     ) -> torch.Tensor:
         """
         Args:
-            x: тензор формы (batch_size, seq_len, d_model)
-            sequence_ids: тензор формы (batch_size, seq_len) с ID последовательностей
-            past_key_value: зарезервировано для KV-кэша (п. 1.2 ЛР4), пока не используется
-            use_cache: зарезервировано для KV-кэша (п. 1.2 ЛР4)
+            x: (batch_size, seq_len, d_model) при use_cache=False;
+               (batch_size, new_len, d_model) — только новые токены — при use_cache=True
+            sequence_ids: тензор формы (batch_size, seq_len) с ID последовательностей;
+                          игнорируется при use_cache=True (см. класс докстринг)
+            past_key_value: при use_cache=True — None (первый шаг/prefill) либо
+                            кортеж (K_cache, V_cache) формы (batch_size, n_kv_heads, past_len, d_k)
+            use_cache: False — обычный packed-batching forward (как в п. 1.1);
+                       True — инкрементальный шаг инференса с KV-кэшем (п. 1.2)
 
         Returns:
-            результат внимания формы (batch_size, seq_len, d_model)
+            use_cache=False: результат внимания формы (batch_size, seq_len, d_model)
+            use_cache=True: кортеж (output, present_key_value), где output —
+                            (batch_size, new_len, d_model), а present_key_value —
+                            (K, V) формы (batch_size, n_kv_heads, past_len+new_len, d_k)
         """
         if use_cache:
-            raise NotImplementedError(
-                "KV-кэш для GQAAttention пока не реализован (use_cache=True). "
-                "Он появится в отдельном классе следующего пункта ЛР4 (п. 1.2), "
-                "построенном поверх GQAAttention с использованием уже заложенных "
-                "аргументов use_cache/past_key_value."
-            )
+            return self._forward_with_cache(x, past_key_value)
 
         batch_size, seq_len, _ = x.shape
 
@@ -115,6 +122,68 @@ class GQAAttention(nn.Module):
         output = self.W_o(attn_output)
 
         return output
+
+    def _forward_with_cache(self, x: torch.Tensor, past_key_value):
+        """
+        Инкрементальный шаг инференса с KV-кэшем (п. 1.2 ЛР4).
+
+        Args:
+            x: (batch_size, new_len, d_model) — только новые токены текущего шага
+               (new_len == длина промпта при prefill, new_len == 1 при decode)
+            past_key_value: None либо (K_cache, V_cache) формы (batch_size, n_kv_heads, past_len, d_k)
+
+        Returns:
+            (output, present_key_value): output формы (batch_size, new_len, d_model),
+            present_key_value — (K, V) формы (batch_size, n_kv_heads, past_len+new_len, d_k)
+        """
+        batch_size, new_len, _ = x.shape
+
+        # Один матмул на Q, K и V для новых токенов, затем split по последней оси
+        qkv = self.W_qkv(x)  # (batch_size, new_len, q_dim + 2*kv_dim)
+        Q_new, K_new, V_new = torch.split(qkv, [self.q_dim, self.kv_dim, self.kv_dim], dim=-1)
+
+        Q_new = Q_new.view(batch_size, new_len, self.n_heads, self.d_k).transpose(1, 2)
+        K_new = K_new.view(batch_size, new_len, self.n_kv_heads, self.d_k).transpose(1, 2)
+        V_new = V_new.view(batch_size, new_len, self.n_kv_heads, self.d_k).transpose(1, 2)
+
+        # Дописываем новые K/V к кэшу (компактный размер: n_kv_heads, а не n_heads)
+        if past_key_value is not None:
+            K_cache, V_cache = past_key_value
+            K = torch.cat([K_cache, K_new], dim=2)
+            V = torch.cat([V_cache, V_new], dim=2)
+        else:
+            K, V = K_new, V_new
+
+        present_key_value = (K, V)
+
+        # Размножение K/V до n_heads выполняется на лету, в кэше не хранится
+        K_rep = K.repeat_interleave(self.n_rep, dim=1)  # (batch_size, n_heads, total_len, d_k)
+        V_rep = V.repeat_interleave(self.n_rep, dim=1)  # (batch_size, n_heads, total_len, d_k)
+
+        # scores: (batch_size, n_heads, new_len, total_len)
+        scores = torch.matmul(Q_new, K_rep.transpose(-2, -1)) / math.sqrt(self.d_k)
+
+        # Маска нужна только при new_len > 1 (prefill): новые токены не должны
+        # видеть друг друга "из будущего"; кэшированная часть разрешена целиком.
+        # При new_len == 1 маска не нужна вовсе — единственный новый токен
+        # закономерно видит весь кэш и себя самого.
+        if new_len > 1:
+            total_len = K.shape[2]
+            past_len = total_len - new_len
+            # allowed[i, j] = (j <= past_len + i)
+            causal_mask = torch.tril(
+                torch.ones(new_len, total_len, device=x.device, dtype=torch.bool),
+                diagonal=past_len,
+            )
+            scores = scores.masked_fill(~causal_mask, torch.finfo(scores.dtype).min)
+
+        attn_weights = F.softmax(scores, dim=-1)
+        attn_output = torch.matmul(attn_weights, V_rep)
+
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, new_len, self.d_model)
+        output = self.W_o(attn_output)
+
+        return output, present_key_value
 
     def _create_block_mask(self, sequence_ids: torch.Tensor) -> torch.Tensor:
         """

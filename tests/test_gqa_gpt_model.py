@@ -123,3 +123,73 @@ def test_gqa_gpt_model_builds_from_config():
     logits = model(input_ids, sequence_ids)
 
     assert logits.shape == (batch_size, seq_len, config.model.vocab_size)
+
+
+def test_gqa_gpt_model_cache_matches_full_forward():
+    """
+    Главный тест на корректность KV-кэша (п. 1.2 ЛР4): для одной
+    последовательности без паддинга сравниваем полный forward (use_cache=False)
+    с prefill + пошаговым decode (use_cache=True) — логиты должны совпасть.
+    """
+    vocab_size = 50
+    batch_size, seq_len = 2, 12
+    prefill_len = 5
+
+    model = _make_model(vocab_size=vocab_size, max_len=seq_len)
+    model.eval()
+
+    input_ids = torch.randint(1, vocab_size, (batch_size, seq_len))
+    sequence_ids = torch.ones(batch_size, seq_len, dtype=torch.long)  # без паддинга и стыков
+
+    with torch.no_grad():
+        full_logits = model(input_ids, sequence_ids, use_cache=False)
+
+        # Prefill
+        logits_prefill, past_key_values = model(
+            input_ids[:, :prefill_len], sequence_ids[:, :prefill_len], use_cache=True
+        )
+        torch.testing.assert_close(logits_prefill, full_logits[:, :prefill_len, :], atol=1e-4, rtol=1e-4)
+
+        # Decode по одному токену с накоплением кэша
+        decode_logits = []
+        for t in range(prefill_len, seq_len):
+            step_logits, past_key_values = model(
+                input_ids[:, t: t + 1],
+                sequence_ids[:, t: t + 1],
+                past_key_values=past_key_values,
+                use_cache=True,
+            )
+            decode_logits.append(step_logits)
+
+        decode_logits = torch.cat(decode_logits, dim=1)
+
+    torch.testing.assert_close(decode_logits, full_logits[:, prefill_len:, :], atol=1e-4, rtol=1e-4)
+
+
+def test_gqa_gpt_model_cache_prefill_then_decode_shapes():
+    """После prefill длины P и k шагов decode кэш имеет длину P + k на каждом слое."""
+    vocab_size = 50
+    batch_size = 2
+    prefill_len, n_decode_steps, n_layers = 4, 3, 2
+
+    model = _make_model(vocab_size=vocab_size, n_layers=n_layers, max_len=prefill_len + n_decode_steps)
+    model.eval()
+
+    input_ids = torch.randint(1, vocab_size, (batch_size, prefill_len))
+    sequence_ids = torch.ones(batch_size, prefill_len, dtype=torch.long)
+
+    with torch.no_grad():
+        _, past_key_values = model(input_ids, sequence_ids, use_cache=True)
+
+        for _ in range(n_decode_steps):
+            next_token = torch.randint(1, vocab_size, (batch_size, 1))
+            next_seq_ids = torch.ones(batch_size, 1, dtype=torch.long)
+            _, past_key_values = model(
+                next_token, next_seq_ids, past_key_values=past_key_values, use_cache=True
+            )
+
+    expected_len = prefill_len + n_decode_steps
+    assert len(past_key_values) == n_layers
+    for K, V in past_key_values:
+        assert K.shape[2] == expected_len
+        assert V.shape[2] == expected_len

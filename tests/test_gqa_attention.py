@@ -98,13 +98,84 @@ def test_gqa_respects_packed_mask():
     torch.testing.assert_close(second_half_out, second_half_out_modified)
 
 
-def test_gqa_use_cache_raises_not_implemented():
-    gqa = GQAAttention(d_model=32, n_heads=8, n_kv_heads=2)
-    x = torch.randn(1, 5, 32)
+def test_gqa_attention_use_cache_no_longer_raises():
+    """
+    п. 1.2 ЛР4: use_cache=True больше не заглушка — реализован KV-кэш,
+    контракт из п. 1.1 (NotImplementedError) сознательно заменён.
+    """
+    d_model, n_heads, n_kv_heads = 32, 8, 2
+    gqa = GQAAttention(d_model, n_heads, n_kv_heads)
+    x = torch.randn(1, 5, d_model)
     sequence_ids = torch.ones(1, 5, dtype=torch.long)
 
-    with pytest.raises(NotImplementedError):
-        gqa(x, sequence_ids, use_cache=True)
+    result = gqa(x, sequence_ids, use_cache=True)
+
+    assert isinstance(result, tuple)
+    output, present_key_value = result
+    assert output.shape == (1, 5, d_model)
+    assert isinstance(present_key_value, tuple)
+    K, V = present_key_value
+    assert K.shape == (1, n_kv_heads, 5, gqa.d_k)
+    assert V.shape == (1, n_kv_heads, 5, gqa.d_k)
+
+
+def test_gqa_attention_cache_shape_is_compact():
+    """present_key_value имеет форму (B, n_kv_heads, ...), а не (B, n_heads, ...) —
+    именно в этом экономия памяти от GQA."""
+    d_model, n_heads, n_kv_heads = 32, 8, 2
+    batch_size, seq_len = 2, 7
+
+    gqa = GQAAttention(d_model, n_heads, n_kv_heads)
+    x = torch.randn(batch_size, seq_len, d_model)
+    sequence_ids = torch.ones(batch_size, seq_len, dtype=torch.long)
+
+    _, (K, V) = gqa(x, sequence_ids, use_cache=True)
+
+    assert K.shape == (batch_size, n_kv_heads, seq_len, gqa.d_k)
+    assert V.shape == (batch_size, n_kv_heads, seq_len, gqa.d_k)
+    assert K.shape[1] == n_kv_heads and K.shape[1] != n_heads
+
+
+def test_gqa_attention_single_step_needs_no_mask():
+    """
+    При new_len == 1 маска не применяется вовсе. Проверяем, что результат
+    совпадает с явным вариантом без какой-либо маски (полностью открытая
+    матрица весов внимания по всей длине кэш+новый токен).
+    """
+    torch.manual_seed(0)
+    d_model, n_heads, n_kv_heads = 16, 4, 2
+    batch_size, past_len = 2, 5
+
+    gqa = GQAAttention(d_model, n_heads, n_kv_heads)
+    gqa.eval()
+
+    K_cache = torch.randn(batch_size, n_kv_heads, past_len, gqa.d_k)
+    V_cache = torch.randn(batch_size, n_kv_heads, past_len, gqa.d_k)
+    x_new = torch.randn(batch_size, 1, d_model)
+    sequence_ids = torch.ones(batch_size, 1, dtype=torch.long)
+
+    with torch.no_grad():
+        output, _ = gqa(x_new, sequence_ids, past_key_value=(K_cache, V_cache), use_cache=True)
+
+        # Явный вариант: без маски, вручную считаем attention по всей длине
+        qkv = gqa.W_qkv(x_new)
+        Q_new, K_new, V_new = torch.split(qkv, [gqa.q_dim, gqa.kv_dim, gqa.kv_dim], dim=-1)
+        Q_new = Q_new.view(batch_size, 1, n_heads, gqa.d_k).transpose(1, 2)
+        K_new = K_new.view(batch_size, 1, n_kv_heads, gqa.d_k).transpose(1, 2)
+        V_new = V_new.view(batch_size, 1, n_kv_heads, gqa.d_k).transpose(1, 2)
+
+        K_full = torch.cat([K_cache, K_new], dim=2)
+        V_full = torch.cat([V_cache, V_new], dim=2)
+        K_rep = K_full.repeat_interleave(gqa.n_rep, dim=1)
+        V_rep = V_full.repeat_interleave(gqa.n_rep, dim=1)
+
+        scores = torch.matmul(Q_new, K_rep.transpose(-2, -1)) / (gqa.d_k ** 0.5)
+        attn_weights = torch.softmax(scores, dim=-1)  # без маски
+        attn_output = torch.matmul(attn_weights, V_rep)
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, 1, d_model)
+        expected_output = gqa.W_o(attn_output)
+
+    torch.testing.assert_close(output, expected_output)
 
 
 def test_gqa_uses_fused_qkv_projection():
