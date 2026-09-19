@@ -37,23 +37,7 @@ class GQAAttention(nn.Module):
         past_key_value=None,
         use_cache: bool = False,
     ) -> torch.Tensor:
-        """
-        Args:
-            x: (batch_size, seq_len, d_model) при use_cache=False;
-               (batch_size, new_len, d_model) — только новые токены — при use_cache=True
-            sequence_ids: тензор формы (batch_size, seq_len) с ID последовательностей;
-                          игнорируется при use_cache=True (см. класс докстринг)
-            past_key_value: при use_cache=True — None (первый шаг/prefill) либо
-                            кортеж (K_cache, V_cache) формы (batch_size, n_kv_heads, past_len, d_k)
-            use_cache: False — обычный packed-batching forward (как в п. 1.1);
-                       True — инкрементальный шаг инференса с KV-кэшем (п. 1.2)
 
-        Returns:
-            use_cache=False: результат внимания формы (batch_size, seq_len, d_model)
-            use_cache=True: кортеж (output, present_key_value), где output —
-                            (batch_size, new_len, d_model), а present_key_value —
-                            (K, V) формы (batch_size, n_kv_heads, past_len+new_len, d_k)
-        """
         if use_cache:
             return self._forward_with_cache(x, past_key_value)
 
