@@ -4,31 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class GQAAttention(nn.Module):
-    """
-    Grouped Query Attention (GQA) с поддержкой packed batching.
-
-    Сокращает число K/V-голов до n_kv_heads < n_heads: query-головы
-    группируются вокруг общих K/V-голов, что уменьшает размер будущего
-    KV-кэша и объём вычислений на инференсе. При n_kv_heads == n_heads
-    GQA эквивалентен обычному MHA (BlockMaskedAttention).
-
-    Маска: M[i,j] = (s_i == s_j) AND (j <= i) AND (s_i != 0)
-
-    При use_cache=False (обучение/packed batching) поведение не менялось
-    с п. 1.1. При use_cache=True (п. 1.2, инференс) forward принимает
-    только новые токены текущего шага и переиспользует K/V уже
-    обработанных токенов из past_key_value формы
-    (batch_size, n_kv_heads, past_len, d_k) — компактный размер за счёт
-    GQA (n_kv_heads, а не n_heads). sequence_ids в этой ветке не участвует
-    в маске (packed batching при генерации не применяется), но остаётся
-    обязательным параметром ради единого вызова из GQATransformerLayer.
-
-    Оптимизация: Q/K/V считаются одним слитным матричным умножением
-    (self.W_qkv) вместо трёх отдельных — вход x общий для всех трёх
-    проекций, поэтому один большой GEMM с последующим split эквивалентен
-    трём маленьким, но дешевле на GPU за счёт меньшего числа запусков ядер.
-    """
+class GQAAttention(nn.Module):    
 
     def __init__(self, d_model: int, n_heads: int, n_kv_heads: int):
         """
@@ -51,7 +27,6 @@ class GQAAttention(nn.Module):
         self.kv_dim = n_kv_heads * self.d_k
 
         # Слитная Q/K/V-проекция: один Linear и один матмул вместо трёх.
-        # Выход разбивается на [Q | K | V] по последней оси.
         self.W_qkv = nn.Linear(d_model, self.q_dim + 2 * self.kv_dim)
         self.W_o = nn.Linear(d_model, d_model)
 
